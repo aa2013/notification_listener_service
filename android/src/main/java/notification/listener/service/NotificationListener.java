@@ -18,6 +18,10 @@ import android.os.Bundle;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
@@ -26,6 +30,7 @@ import java.util.HashMap;
 import androidx.annotation.RequiresApi;
 
 import java.io.ByteArrayOutputStream;
+import java.util.UUID;
 
 import notification.listener.service.models.Action;
 
@@ -95,9 +100,8 @@ public class NotificationListener extends NotificationListenerService {
             if (extras.containsKey(Notification.EXTRA_PICTURE)) {
                 Bitmap bmp = (Bitmap) extras.get(Notification.EXTRA_PICTURE);
                 if (bmp != null) {
-                    ByteArrayOutputStream stream = new ByteArrayOutputStream();
-                    bmp.compress(Bitmap.CompressFormat.PNG, 100, stream);
-                    intent.putExtra(NotificationConstants.EXTRAS_PICTURE, stream.toByteArray());
+                    String filePath = saveBitmapToFile(this, bmp, UUID.randomUUID().toString());
+                    intent.putExtra(NotificationConstants.EXTRAS_PICTURE, filePath);
                 } else {
                     Log.w("NotificationListener", "Notification.EXTRA_PICTURE exists but is null.");
                 }
@@ -106,6 +110,27 @@ public class NotificationListener extends NotificationListenerService {
         sendBroadcast(intent);
     }
 
+    private String saveBitmapToFile(Context context, Bitmap bitmap, String fileName) {
+        FileOutputStream fos = null;
+        try {
+            File file = new File(context.getCacheDir(), fileName);
+            fos = new FileOutputStream(file);
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
+            fos.flush();
+            return file.getAbsolutePath();
+        } catch (IOException e) {
+            Log.e("NotificationListener", "Save notification big picture failed!", e);
+            return null;
+        } finally {
+            if (fos != null) {
+                try {
+                    fos.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
 
     public byte[] getAppIcon(String packageName) {
         try {
