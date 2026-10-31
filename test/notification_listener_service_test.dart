@@ -47,6 +47,17 @@ void main() {
       expect(result, isFalse);
     });
 
+    test('requestPermission returns false when native returns null', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(methodChannel,
+              (MethodCall methodCall) async {
+        return null;
+      });
+
+      final result = await NotificationListenerService.requestPermission();
+      expect(result, isFalse);
+    });
+
     test('isPermissionGranted returns true when permission is granted',
         () async {
       final result = await NotificationListenerService.isPermissionGranted();

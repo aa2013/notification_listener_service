@@ -29,10 +29,11 @@ class NotificationListenerService {
   /// it will open the notification settings page and return `true` once the permission granted.
   static Future<bool> requestPermission() async {
     try {
-      return await methodeChannel.invokeMethod('requestPermission');
+      final granted = await methodeChannel.invokeMethod<bool>('requestPermission');
+      return granted ?? false;
     } on PlatformException catch (error) {
       log("$error");
-      return Future.value(false);
+      return false;
     }
   }
 

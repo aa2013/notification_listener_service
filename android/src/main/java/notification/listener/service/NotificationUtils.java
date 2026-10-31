@@ -42,6 +42,10 @@ public final class NotificationUtils {
             String[] names = flat.split(":");
             for (String name : names) {
                 ComponentName componentName = ComponentName.unflattenFromString(name);
+                // 系统设置中可能存在无法解析的条目，跳过而不是让整个权限检查崩溃
+                if (componentName == null) {
+                    continue;
+                }
                 boolean nameMatch = TextUtils.equals(packageName, componentName.getPackageName());
                 if (nameMatch) {
                     return true;

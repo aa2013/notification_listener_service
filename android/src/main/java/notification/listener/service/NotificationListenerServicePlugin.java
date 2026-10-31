@@ -37,12 +37,15 @@ public class NotificationListenerServicePlugin implements FlutterPlugin, Activit
     private static final String CHANNEL_TAG = "x-slayer/notifications_channel";
     private static final String EVENT_TAG = "x-slayer/notifications_event";
 
+    private static final String LOG_TAG = "NotificationPlugin";
+
     private MethodChannel channel;
     private EventChannel eventChannel;
     private NotificationReceiver notificationReceiver;
     private Context context;
     private Activity mActivity;
 
+    /** 等待用户从系统设置页返回的权限请求回调，同一时间最多一个 */
     private Result pendingResult;
     final int REQUEST_CODE_FOR_NOTIFICATIONS = 1199;
 
@@ -57,18 +60,10 @@ public class NotificationListenerServicePlugin implements FlutterPlugin, Activit
 
     @Override
     public void onMethodCall(@NonNull MethodCall call, @NonNull Result result) {
-        pendingResult = result;
         if (call.method.equals("isPermissionGranted")) {
             result.success(isPermissionGranted(context));
         } else if (call.method.equals("requestPermission")) {
-            Intent intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
-            try {
-                mActivity.startActivityForResult(intent, REQUEST_CODE_FOR_NOTIFICATIONS);
-                result.success(null);
-            } catch (ActivityNotFoundException e) {
-                Log.e("NotificationPlugin", "ActivityNotFoundException: " + e.getMessage());
-                result.error("ACTIVITY_NOT_FOUND", "No activity found to handle notification listener settings", null);
-            }
+            requestPermission(result);
         } else if (call.method.equals("sendReply")) {
             final String message = call.argument("message");
             final int notificationId = call.argument("notificationId");
@@ -98,6 +93,32 @@ public class NotificationListenerServicePlugin implements FlutterPlugin, Activit
         }
     }
 
+    /**
+     * 打开系统通知监听设置页，并在用户返回后按实际权限状态完成回调。
+     *
+     * @param result 本次请求的回调，权限只能由用户在系统设置页授予，因此不能在打开页面时完成
+     */
+    private void requestPermission(Result result) {
+        if (mActivity == null) {
+            result.error("NO_ACTIVITY", "The plugin is not attached to an Activity", null);
+            return;
+        }
+        if (pendingResult != null) {
+            result.error("REQUEST_IN_PROGRESS", "A permission request is already in progress", null);
+            return;
+        }
+
+        Intent intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
+        pendingResult = result;
+        try {
+            mActivity.startActivityForResult(intent, REQUEST_CODE_FOR_NOTIFICATIONS);
+        } catch (ActivityNotFoundException e) {
+            pendingResult = null;
+            Log.e(LOG_TAG, "ActivityNotFoundException: " + e.getMessage());
+            result.error("ACTIVITY_NOT_FOUND", "No activity found to handle notification listener settings", null);
+        }
+    }
+
     @Override
     public void onDetachedFromEngine(@NonNull FlutterPluginBinding binding) {
         channel.setMethodCallHandler(null);
@@ -112,7 +133,8 @@ public class NotificationListenerServicePlugin implements FlutterPlugin, Activit
 
     @Override
     public void onDetachedFromActivityForConfigChanges() {
-        onDetachedFromActivity();
+        // 配置变更后会立即重新附加 Activity，等待中的权限请求保留到设置页返回
+        this.mActivity = null;
     }
 
     @Override
@@ -122,6 +144,12 @@ public class NotificationListenerServicePlugin implements FlutterPlugin, Activit
 
     @Override
     public void onDetachedFromActivity() {
+        // Activity 销毁后不会再回调 onActivityResult，用当前权限状态结束挂起的请求，避免 Dart 侧永久等待
+        final Result result = pendingResult;
+        pendingResult = null;
+        if (result != null) {
+            result.success(isPermissionGranted(context));
+        }
         this.mActivity = null;
     }
     @SuppressLint("WrongConstant")
@@ -137,7 +165,7 @@ public class NotificationListenerServicePlugin implements FlutterPlugin, Activit
         }
         Intent listenerIntent = new Intent(context, NotificationReceiver.class);
         context.startService(listenerIntent);
-        Log.i("NotificationPlugin", "Started the notifications tracking service.");
+        Log.i(LOG_TAG, "Started the notifications tracking service.");
     }
 
     @Override
@@ -148,16 +176,18 @@ public class NotificationListenerServicePlugin implements FlutterPlugin, Activit
 
     @Override
     public boolean onActivityResult(int requestCode, int resultCode, Intent data) {
-        if (requestCode == REQUEST_CODE_FOR_NOTIFICATIONS) {
-            if (resultCode == Activity.RESULT_OK) {
-                pendingResult.success(true);
-            } else if (resultCode == Activity.RESULT_CANCELED) {
-                pendingResult.success(isPermissionGranted(context));
-            } else {
-                pendingResult.success(false);
-            }
-            return true;
+        if (requestCode != REQUEST_CODE_FOR_NOTIFICATIONS) {
+            return false;
         }
-        return false;
+
+        final Result result = pendingResult;
+        pendingResult = null;
+        if (result == null) {
+            return false;
+        }
+
+        // 系统通知监听设置页返回时 resultCode 恒为 RESULT_CANCELED，权限状态以实际设置为准
+        result.success(isPermissionGranted(context));
+        return true;
     }
 }
